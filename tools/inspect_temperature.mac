@@ -1,0 +1,26 @@
+execUserAttach()
+{
+  __message "uwTick=", __readMemory32(0x20014bf8, "Memory"), "\n";
+  __message "dht_attempts=", __readMemory32(0x2002cdc8, "Memory"), "\n";
+  __message "dht_successes=", __readMemory32(0x2002cdcc, "Memory"), "\n";
+  __message "dht_checksum_errors=", __readMemory32(0x2002cdd0, "Memory"), "\n";
+  __message "dht_timeout_errors=", __readMemory32(0x2002cdd4, "Memory"), "\n";
+  __message "dht_state=", __readMemory8(0x2002cdb0, "Memory"), "\n";
+  __message "dht_bits=", __readMemory8(0x2002cdb1, "Memory"), "\n";
+  __message "dht_temperature_deci_c=", __readMemory16(0x2002cdbc, "Memory"), "\n";
+  __message "dht_humidity_deci_percent=", __readMemory16(0x2002cdbe, "Memory"), "\n";
+  __message "local_valid=", __readMemory8(0x20014984, "Memory"), "\n";
+  __message "peer_valid=", __readMemory8(0x20014985, "Memory"), "\n";
+  __message "local_temperature=", __readMemory16(0x2001498c, "Memory"), "\n";
+  __message "peer_temperature=", __readMemory16(0x2001498e, "Memory"), "\n";
+  __message "selected_temperature=", __readMemory16(0x20014992, "Memory"), "\n";
+  __message "ready=", __readMemory8(0x20014987, "Memory"), "\n";
+  __message "source=", __readMemory8(0x20014988, "Memory"), "\n";
+  __message "automatic=", __readMemory8(0x20014986, "Memory"), "\n";
+  __message "local_role=", __readMemory8(0x2002cc77, "Memory"), "\n";
+  __message "clock_state=", __readMemory8(0x2002c9f8, "Memory"), "\n";
+  __message "measure_history_count=", __readMemory32(0x2002bd88, "Memory"), "\n";
+  __message "UID0=", __readMemory32(0x1ff0f420, "Memory"), "\n";
+  __message "UID1=", __readMemory32(0x1ff0f424, "Memory"), "\n";
+  __message "UID2=", __readMemory32(0x1ff0f428, "Memory"), "\n";
+}

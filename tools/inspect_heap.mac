@@ -1,0 +1,16 @@
+execUserAttach()
+{
+ __var base;
+ __var pos;
+ __var next;
+ __var i;
+ base=__readMemory32(0x2002cdb0,"Memory");
+ pos=0;
+ for(i=0;i<20;i++)
+ {
+  next=__readMemory16(base+pos,"Memory");
+  __message "heap ",pos," next=",next," used=",__readMemory8(base+pos+4,"Memory"),"\n";
+  if(next<=pos) return;
+  pos=next;
+ }
+}

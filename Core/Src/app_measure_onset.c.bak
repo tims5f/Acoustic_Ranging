@@ -1,0 +1,249 @@
+#include "app_measure.h"
+
+#include "app_clock.h"
+#include "app_network.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/pbuf.h"
+#include "lwip/udp.h"
+#include "stm32f7xx_hal.h"
+
+#define MEASURE_PORT 50002U
+#define MEASURE_MAGIC 0x4D455331UL
+#define MEASURE_PACKET_SIZE 32U
+#define MEASURE_MAX_DELTA_NS 7500000LL
+#define MEASURE_PAIR_TIMEOUT_MS 500U
+#define MEASURE_SOUND_SPEED_MM_S 346450ULL
+
+typedef struct
+{
+  uint64_t arrival_ns;
+  uint32_t id;
+  uint32_t received_ms;
+  uint16_t peak;
+  uint8_t valid;
+} MeasureEvent;
+
+static struct udp_pcb *measure_pcb;
+static MeasureEvent local_event;
+static MeasureEvent peer_event;
+static AppMeasureResult ready_result;
+static uint8_t result_pending;
+static uint8_t retransmits;
+static uint32_t last_send_ms;
+static uint32_t last_paired_local_id;
+static uint32_t last_paired_peer_id;
+
+/* Read once via SWD after acquisition, avoiding repeated debugger attaches. */
+typedef struct
+{
+  uint32_t local_id;
+  uint32_t peer_id;
+  uint32_t distance_mm;
+  int32_t delta_ns;
+  uint16_t local_peak;
+  uint16_t peer_peak;
+} MeasureHistory;
+static volatile MeasureHistory measure_history[32];
+static volatile uint32_t measure_history_count;
+
+static void put32(uint8_t *p, uint32_t v)
+{
+  p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16);
+  p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v;
+}
+
+static uint32_t get32(const uint8_t *p)
+{
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+         ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint32_t crc32(const uint8_t *p, uint16_t length)
+{
+  uint32_t crc = 0xFFFFFFFFUL;
+  uint16_t i;
+  uint8_t bit;
+  for (i = 0U; i < length; i++)
+  {
+    crc ^= p[i];
+    for (bit = 0U; bit < 8U; bit++)
+    {
+      crc = (crc >> 1) ^ ((crc & 1U) ? 0xEDB88320UL : 0UL);
+    }
+  }
+  return ~crc;
+}
+
+static void send_event(void)
+{
+  uint8_t data[MEASURE_PACKET_SIZE] = {0};
+  uint8_t peer_ip[4];
+  ip_addr_t address;
+  struct pbuf *packet;
+
+  if ((measure_pcb == NULL) || (local_event.valid == 0U) ||
+      (AppNetwork_IsPeerOnline() == 0U))
+  {
+    return;
+  }
+  AppNetwork_GetPeerIPv4(peer_ip);
+  IP_ADDR4(&address, peer_ip[0], peer_ip[1], peer_ip[2], peer_ip[3]);
+  put32(&data[0], MEASURE_MAGIC);
+  data[4] = 1U;
+  data[5] = (uint8_t)AppNetwork_GetRole();
+  put32(&data[8], local_event.id);
+  put32(&data[12], (uint32_t)(local_event.arrival_ns >> 32));
+  put32(&data[16], (uint32_t)local_event.arrival_ns);
+  data[20] = (uint8_t)(local_event.peak >> 8);
+  data[21] = (uint8_t)local_event.peak;
+  put32(&data[28], crc32(data, 28U));
+  packet = pbuf_alloc(PBUF_TRANSPORT, MEASURE_PACKET_SIZE, PBUF_RAM);
+  if (packet != NULL)
+  {
+    if (pbuf_take(packet, data, MEASURE_PACKET_SIZE) == ERR_OK)
+    {
+      (void)udp_sendto(measure_pcb, packet, &address, MEASURE_PORT);
+    }
+    pbuf_free(packet);
+  }
+}
+
+static void receive_event(void *arg, struct udp_pcb *pcb, struct pbuf *packet,
+                          const ip_addr_t *address, u16_t port)
+{
+  uint8_t data[MEASURE_PACKET_SIZE];
+  uint8_t peer_ip[4];
+  (void)arg; (void)pcb;
+  if (packet == NULL) return;
+  AppNetwork_GetPeerIPv4(peer_ip);
+  if ((port == MEASURE_PORT) &&
+      (packet->tot_len == MEASURE_PACKET_SIZE) &&
+      (pbuf_copy_partial(packet, data, MEASURE_PACKET_SIZE, 0U) ==
+       MEASURE_PACKET_SIZE) &&
+      (get32(&data[0]) == MEASURE_MAGIC) && (data[4] == 1U) &&
+      (get32(&data[28]) == crc32(data, 28U)) &&
+      (AppNetwork_IsPeerOnline() != 0U) &&
+      (AppClock_GetState() == APP_CLOCK_LOCKED) &&
+      (data[5] != (uint8_t)AppNetwork_GetRole()) &&
+      (peer_ip[0] == ip4_addr1(ip_2_ip4(address))) &&
+      (peer_ip[1] == ip4_addr2(ip_2_ip4(address))) &&
+      (peer_ip[2] == ip4_addr3(ip_2_ip4(address))) &&
+      (peer_ip[3] == ip4_addr4(ip_2_ip4(address))))
+  {
+    uint32_t id = get32(&data[8]);
+    if ((peer_event.valid == 0U) || (peer_event.id != id))
+    {
+      peer_event.id = id;
+      peer_event.arrival_ns = ((uint64_t)get32(&data[12]) << 32) |
+                              get32(&data[16]);
+      peer_event.peak = (uint16_t)(((uint16_t)data[20] << 8) | data[21]);
+      peer_event.received_ms = HAL_GetTick();
+      peer_event.valid = 1U;
+    }
+  }
+  pbuf_free(packet);
+}
+
+void AppMeasure_Init(void)
+{
+  measure_pcb = udp_new();
+  if (measure_pcb != NULL)
+  {
+    if (udp_bind(measure_pcb, IP_ADDR_ANY, MEASURE_PORT) == ERR_OK)
+    {
+      udp_recv(measure_pcb, receive_event, NULL);
+    }
+    else
+    {
+      udp_remove(measure_pcb);
+      measure_pcb = NULL;
+    }
+  }
+}
+
+void AppMeasure_OnAudioEvent(const AppAudioTriggerEvent *event)
+{
+  if ((event == NULL) || (event->arrival_ns == 0U) ||
+      (AppClock_GetState() != APP_CLOCK_LOCKED) ||
+      (AppNetwork_IsPeerOnline() == 0U))
+  {
+    return;
+  }
+  local_event.id = event->event_id;
+  local_event.arrival_ns = event->arrival_ns;
+  local_event.peak = event->peak;
+  local_event.received_ms = HAL_GetTick();
+  local_event.valid = 1U;
+  retransmits = 3U;
+  last_send_ms = HAL_GetTick() - 40U;
+}
+
+void AppMeasure_Process(void)
+{
+  int64_t delta_ns;
+  uint64_t magnitude_ns;
+  uint32_t now = HAL_GetTick();
+  if ((AppClock_GetState() != APP_CLOCK_LOCKED) ||
+      (AppNetwork_IsPeerOnline() == 0U))
+  {
+    local_event.valid = 0U;
+    peer_event.valid = 0U;
+    retransmits = 0U;
+    result_pending = 0U;
+    return;
+  }
+  if ((local_event.valid != 0U) &&
+      ((now - local_event.received_ms) > MEASURE_PAIR_TIMEOUT_MS))
+    local_event.valid = 0U;
+  if ((peer_event.valid != 0U) &&
+      ((now - peer_event.received_ms) > MEASURE_PAIR_TIMEOUT_MS))
+    peer_event.valid = 0U;
+  if ((retransmits != 0U) && (local_event.valid != 0U) &&
+      ((now - last_send_ms) >= 40U))
+  {
+    send_event();
+    retransmits--;
+    last_send_ms = now;
+  }
+  if ((local_event.valid == 0U) || (peer_event.valid == 0U)) return;
+  if ((local_event.id == last_paired_local_id) &&
+      (peer_event.id == last_paired_peer_id)) return;
+  delta_ns = (int64_t)local_event.arrival_ns -
+             (int64_t)peer_event.arrival_ns;
+  if ((delta_ns > MEASURE_MAX_DELTA_NS) ||
+      (delta_ns < -MEASURE_MAX_DELTA_NS)) return;
+  magnitude_ns = (delta_ns < 0) ? (uint64_t)-delta_ns : (uint64_t)delta_ns;
+  ready_result.distance_mm = (uint32_t)
+      ((magnitude_ns * MEASURE_SOUND_SPEED_MM_S + 500000000ULL) /
+       1000000000ULL);
+  ready_result.source_at_master =
+      ((AppNetwork_GetRole() == APP_NETWORK_ROLE_MASTER) ?
+       (delta_ns < 0) : (delta_ns > 0)) ? 1U : 0U;
+  ready_result.event_id = local_event.id;
+  ready_result.latency_ms = (uint16_t)(now - local_event.received_ms);
+  ready_result.peak = (local_event.peak < peer_event.peak) ?
+                      local_event.peak : peer_event.peak;
+  ready_result.clipped = ((local_event.peak >= 32000U) ||
+                          (peer_event.peak >= 32000U)) ? 1U : 0U;
+  result_pending = 1U;
+  {
+    uint32_t index = measure_history_count % 32U;
+    measure_history[index].local_id = local_event.id;
+    measure_history[index].peer_id = peer_event.id;
+    measure_history[index].distance_mm = ready_result.distance_mm;
+    measure_history[index].delta_ns = (int32_t)delta_ns;
+    measure_history[index].local_peak = local_event.peak;
+    measure_history[index].peer_peak = peer_event.peak;
+    measure_history_count++;
+  }
+  last_paired_local_id = local_event.id;
+  last_paired_peer_id = peer_event.id;
+}
+
+uint8_t AppMeasure_PopResult(AppMeasureResult *result)
+{
+  if ((result == NULL) || (result_pending == 0U)) return 0U;
+  *result = ready_result;
+  result_pending = 0U;
+  return 1U;
+}

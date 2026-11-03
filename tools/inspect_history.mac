@@ -1,0 +1,38 @@
+execUserAttach()
+{
+  __var i;
+  __var p;
+  __message "uwTick=", __readMemory32(0x20014bf8, "Memory"), "\n";
+  __message "measure_history_count=", __readMemory32(0x2002bd88, "Memory"), "\n";
+  __message "trigger_event_id=", __readMemory32(0x2002cc50, "Memory"), "\n";
+  __message "trigger_accepted_count=", __readMemory32(0x2002cc54, "Memory"), "\n";
+  __message "measure_tx_packets=", __readMemory32(0x2002ce34, "Memory"), "\n";
+  __message "measure_tx_alloc_fail=", __readMemory32(0x2002ce38, "Memory"), "\n";
+  __message "measure_tx_send_fail=", __readMemory32(0x2002ce3c, "Memory"), "\n";
+  __message "measure_rx_packets=", __readMemory32(0x2002b7ec, "Memory"), "\n";
+  __message "measure_rx_crc_fail=", __readMemory32(0x2002b7f0, "Memory"), "\n";
+  __message "measure_rx_filtered=", __readMemory32(0x2002b7f4, "Memory"), "\n";
+  __message "ethernet_tx_failures=", __readMemory32(0x2002ce90, "Memory"), "\n";
+  __message "measure_result_acks=", __readMemory32(0x2002b7e8, "Memory"), "\n";
+  __message "clock_state=", __readMemory8(0x2002c9f8, "Memory"), "\n";
+  __message "last_correlation_permille=", __readMemory16(0x2002435a, "Memory"), "\n";
+  __message "correlation_reject_count=", __readMemory32(0x2001bd28, "Memory"), "\n";
+  __message "last_alignment_lag=", __readMemory32(0x2001bd2c, "Memory"), "\n";
+  __message "last_peak_gap_permille=", __readMemory32(0x2001bd34, "Memory"), "\n";
+  __message "last_alignment_delta_ns=", __readMemory32(0x2001bd30, "Memory"), "\n";
+  __message "last_reject_reason=", __readMemory8(0x20024358, "Memory"), "\n";
+  __message "last_envelope_lag=", __readMemory32(0x20021d38, "Memory"), "\n";
+  __message "last_envelope_correlation=", __readMemory16(0x20018d22, "Memory"), "\n";
+  for (i = 0; i < 32; i++)
+  {
+    p = 0x2002bb08 + i * 20;
+    __message "H,", i, ",", __readMemory32(p, "Memory"), ",", __readMemory32(p+4, "Memory"), ",", __readMemory32(p+8, "Memory"), ",", __readMemory32(p+12, "Memory"), ",", __readMemory16(p+16, "Memory"), ",", __readMemory16(p+18, "Memory"), "\n";
+  }
+  __message "local_event_id=", __readMemory32(0x20025b98, "Memory"), "\n";
+  __message "local_event_valid=", __readMemory8(0x20025ba2, "Memory"), "\n";
+  __message "local_event_mask=", __readMemory8(0x20025ba3, "Memory"), "\n";
+  __message "peer_event_id=", __readMemory32(0x200273b8, "Memory"), "\n";
+  __message "peer_event_valid=", __readMemory8(0x200273c2, "Memory"), "\n";
+  __message "peer_event_mask=", __readMemory8(0x200273c3, "Memory"), "\n";
+  __message "start_delta_ns=", __readMemory64(0x20025b88, "Memory") - __readMemory64(0x200273a8, "Memory"), "\n";
+}

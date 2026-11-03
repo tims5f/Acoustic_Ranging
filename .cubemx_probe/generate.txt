@@ -1,0 +1,6 @@
+config load "E:\qianrushi\final_work\.cubemx_probe\Probe.ioc"
+project name Probe
+project path "E:\qianrushi\final_work\.cubemx_probe\generated_lwip"
+project toolchain EWARM
+project generate
+exit

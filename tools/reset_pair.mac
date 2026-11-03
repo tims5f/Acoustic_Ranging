@@ -1,0 +1,4 @@
+execUserAttach()
+{
+  __writeMemory8(0, 0x20016ef4, "Memory");
+}
