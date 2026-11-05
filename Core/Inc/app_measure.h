@@ -9,11 +9,13 @@ typedef struct
   uint32_t event_id;
   uint32_t distance_mm;
   uint32_t sound_speed_mm_s;
+  uint32_t arrival_difference_change_ns;
   uint16_t latency_ms;
   uint8_t source_at_master;
   uint8_t clipped;
   uint16_t peak;
   uint16_t correlation_permille;
+  uint8_t arrival_difference_change_valid;
 } AppMeasureResult;
 
 void AppMeasure_Init(void);

@@ -1,0 +1,42 @@
+
+     IAR C-SPY Command Line Utility V9.1.5.10207
+     Copyright 2000-2022 IAR Systems AB.
+
+uwTick=791035
+
+correlation_runtime_ms=0
+
+correlation_runtime_max_ms=0
+
+measure_result_acks=0
+
+audio_mode=0
+
+audio_capture_mode=0
+
+measurement_audio_mode=0
+
+command_pending=0
+
+peer_online=1
+
+clock_state=2
+
+trigger_threshold_permille=5
+
+trigger_event_id=288
+
+trigger_accepted_count=284
+
+measure_history_count=238
+
+correlation_reject_count=0
+
+last_reject_reason=0
+
+measure_rx_filtered=0
+
+Execution time limit exceeded: 2324 (max 1000)
+
+     CSpyBat terminating.
+

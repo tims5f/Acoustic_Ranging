@@ -15,6 +15,15 @@ uint8_t A_IsAutomatic(void);
 uint8_t A_IsReady(void);
 uint8_t A_GetSource(void); /* 0 manual, 1 master sensor, 2 slave sensor */
 #endif
+#ifndef A_SETTINGS_H
+#define A_SETTINGS_H
+#include <stdint.h>
+#define APP_AUDIO_MODE_CLAP 0U
+#define APP_AUDIO_MODE_PHONE 1U
+uint8_t A_GetAudioMode(void);
+void A_SetAudioMode(uint8_t mode);
+uint8_t A_IsPending(void);
+#endif
 
 #ifndef NODE_B_H
 #define NODE_B_H
@@ -32,6 +41,15 @@ uint32_t B_GetSoundSpeed(void);
 uint8_t B_IsAutomatic(void);
 uint8_t B_IsReady(void);
 uint8_t B_GetSource(void); /* 0 manual, 1 master sensor, 2 slave sensor */
+#endif
+#ifndef B_SETTINGS_H
+#define B_SETTINGS_H
+#include <stdint.h>
+#define APP_AUDIO_MODE_CLAP 0U
+#define APP_AUDIO_MODE_PHONE 1U
+uint8_t B_GetAudioMode(void);
+void B_SetAudioMode(uint8_t mode);
+uint8_t B_IsPending(void);
 #endif
 
 #include "mock.h"
@@ -81,6 +99,11 @@ int main(void) {
   assert(A_IsReady() && B_IsReady() && A_GetSoundSpeed()==330997);
   assert(A_GetSoundSpeed()==B_GetSoundSpeed());
   board=1;B_SetManual(999);pump(4);assert(A_GetTemperature()==-5);
+  board=0;A_SetAudioMode(1);pump(4);
+  assert(A_GetAudioMode()==1 && B_GetAudioMode()==1);
+  board=1;drop=3;B_SetAudioMode(0);pump(8);
+  assert(A_GetAudioMode()==0 && B_GetAudioMode()==0 && !B_IsPending());
+  assert(A_GetTemperature()==-5 && B_GetTemperature()==-5);
   puts("PASS: sensor on A/B, shared speed, manual from slave with packet loss, auto restore, stale samples, negative/invalid temperature");
   return 0;
 }

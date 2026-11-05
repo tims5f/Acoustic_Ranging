@@ -39,9 +39,9 @@ void pbuf_free(struct pbuf*);
 """)
 for file in ['stm32f7xx_hal.h','lwip/udp.h','lwip/pbuf.h','lwip/ip4_addr.h']:
     (OUT/file).write_text('#include "mock.h"\n')
-header=(ROOT/'Core/Inc/app_temperature.h').read_text()
-names=re.findall(r'\b(AppTemperature_\w+)\(',header)
-prototypes='\n'.join(re.sub(r'AppTemperature_',tag+'_',header) for tag in ['A','B'])
+header=(ROOT/'Core/Inc/app_temperature.h').read_text()+(ROOT/'Core/Inc/app_settings.h').read_text()
+names=re.findall(r'\b((?:AppTemperature|AppSettings)_\w+)\(',header)
+prototypes='\n'.join(re.sub(r'(?:AppTemperature|AppSettings)_',tag+'_',header).replace('APP_SETTINGS_H',tag+'_SETTINGS_H') for tag in ['A','B'])
 # Distinct include guards for the two compiled node interfaces.
 prototypes=prototypes.replace('APP_TEMPERATURE_H','NODE_A_H',2).replace('APP_TEMPERATURE_H','NODE_B_H')
 harness=r"""
@@ -92,6 +92,11 @@ int main(void) {
   assert(A_IsReady() && B_IsReady() && A_GetSoundSpeed()==330997);
   assert(A_GetSoundSpeed()==B_GetSoundSpeed());
   board=1;B_SetManual(999);pump(4);assert(A_GetTemperature()==-5);
+  board=0;A_SetAudioMode(1);pump(4);
+  assert(A_GetAudioMode()==1 && B_GetAudioMode()==1);
+  board=1;drop=3;B_SetAudioMode(0);pump(8);
+  assert(A_GetAudioMode()==0 && B_GetAudioMode()==0 && !B_IsPending());
+  assert(A_GetTemperature()==-5 && B_GetTemperature()==-5);
   puts("PASS: sensor on A/B, shared speed, manual from slave with packet loss, auto restore, stale samples, negative/invalid temperature");
   return 0;
 }
@@ -100,7 +105,7 @@ int main(void) {
 gcc=Path('D:/mingw64/bin/gcc.exe')
 base=[str(gcc),'-std=c99','-Wall','-Wextra','-Werror','-I'+str(OUT),'-I'+str(ROOT/'Core/Inc')]
 for tag in ['A','B']:
-    flags=['-D'+name+'='+name.replace('AppTemperature_',tag+'_') for name in names]
+    flags=['-D'+name+'='+re.sub(r'(?:AppTemperature|AppSettings)_',tag+'_',name) for name in names]
     subprocess.run(base+flags+['-c',str(ROOT/'Core/Src/app_temperature.c'),'-o',str(OUT/(tag+'.o'))],check=True)
 subprocess.run(base+[str(OUT/'test.c'),str(OUT/'A.o'),str(OUT/'B.o'),'-o',str(OUT/'test.exe')],check=True)
 subprocess.run([str(OUT/'test.exe')],check=True)

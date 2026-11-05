@@ -1112,6 +1112,9 @@
             <group>
                 <name>Core</name>
                 <file>
+                    <name>$PROJ_DIR$\..\Core\Src\app_audio_filter.c</name>
+                  </file>
+                  <file>
                     <name>$PROJ_DIR$\..\Core\Src\app_audio.c</name>
                 </file>
                 <file>

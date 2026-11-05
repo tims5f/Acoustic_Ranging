@@ -25,7 +25,7 @@ if not "%~1" == "" goto debugFile
 
 @echo on 
 
-"D:\iar\common\bin\cspybat" -f "C:\Users\bjtuj\Desktop\final_work\final_work\EWARM\settings\LEDtest.LEDtest.general.xcl" --backend -f "C:\Users\bjtuj\Desktop\final_work\final_work\EWARM\settings\LEDtest.LEDtest.driver.xcl" 
+"D:\iar\common\bin\cspybat" -f "C:\Users\bjtuj\Desktop\final_work\EWARM\settings\LEDtest.LEDtest.general.xcl" --backend -f "C:\Users\bjtuj\Desktop\final_work\EWARM\settings\LEDtest.LEDtest.driver.xcl" 
 
 @echo off 
 goto end 
@@ -34,7 +34,7 @@ goto end
 
 @echo on 
 
-"D:\iar\common\bin\cspybat" -f "C:\Users\bjtuj\Desktop\final_work\final_work\EWARM\settings\LEDtest.LEDtest.general.xcl" "--debug_file=%~1" --backend -f "C:\Users\bjtuj\Desktop\final_work\final_work\EWARM\settings\LEDtest.LEDtest.driver.xcl" 
+"D:\iar\common\bin\cspybat" -f "C:\Users\bjtuj\Desktop\final_work\EWARM\settings\LEDtest.LEDtest.general.xcl" "--debug_file=%~1" --backend -f "C:\Users\bjtuj\Desktop\final_work\EWARM\settings\LEDtest.LEDtest.driver.xcl" 
 
 @echo off 
 :end

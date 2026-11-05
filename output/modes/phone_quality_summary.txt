@@ -1,0 +1,1 @@
+n=32 min=275 max=278 sd=0.729 common=16 max_board_difference=0

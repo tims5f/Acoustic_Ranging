@@ -76,6 +76,12 @@ typedef struct
   uint32_t network_drop_count;
   const int16_t *waveform;
   uint16_t waveform_count;
+  uint64_t arrival_ns;
+  uint32_t arrival_event_id;
+  uint8_t arrival_valid;
+  uint32_t arrival_difference_change_ns;
+  uint8_t arrival_difference_change_valid;
+  uint8_t audio_mode;
 } AppUiModel;
 
 typedef enum

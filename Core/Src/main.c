@@ -28,6 +28,7 @@
 #include "app_audio.h"
 #include "app_measure.h"
 #include "app_temperature.h"
+#include "app_settings.h"
 #include "app_dht11.h"
 #include "app_touch.h"
 #include "app_ui.h"
@@ -156,6 +157,11 @@ static void App_UpdateAudioUi(void)
   AppAudio_CopySnapshot(&audio_snapshot, ui_waveform,
                         (uint16_t)(sizeof(ui_waveform) /
                                    sizeof(ui_waveform[0])));
+  if(ui_model.audio_mode!=AppSettings_GetAudioMode()) {
+    ui_model.measurement_valid=0U; ui_model.arrival_difference_change_valid=0U;
+    ui_model.direction=APP_UI_DIRECTION_NONE;
+  }
+  ui_model.audio_mode=AppSettings_GetAudioMode();
   ui_model.microphone_state = (uint8_t)audio_snapshot.state;
   ui_model.microphone_left_peak = audio_snapshot.left_peak;
   ui_model.microphone_right_peak = audio_snapshot.right_peak;
@@ -248,9 +254,9 @@ int main(void)
     AppNetwork_Process();
     AppClock_Process();
     AppScope_Process();
-    AppAudio_Process();
     AppDht11_Process();
     AppTemperature_Process();
+    AppAudio_Process();
     AppMeasure_Process();
 
     {
@@ -264,7 +270,13 @@ int main(void)
         if (((now_ms - touch_last_seen_tick) >= 75U) ||
             ((now_ms - touch_last_adjust_tick) >= 250U))
         {
-          if (AppUI_AdjustTemperatureByTouch(touch_x, touch_y))
+          if (touch_x>=145U && touch_x<=221U && touch_y>=181U && touch_y<=202U &&
+              (now_ms-touch_last_seen_tick)>=75U) {
+            AppSettings_SetAudioMode((uint8_t)(AppSettings_GetAudioMode()^1U));
+            AppAudio_SetTriggerThreshold(ui_model.trigger_threshold_permille);
+            touch_last_adjust_tick=now_ms; redraw=1U;
+          }
+          else if (AppUI_AdjustTemperatureByTouch(touch_x, touch_y))
           {
             touch_last_adjust_tick = now_ms;
             redraw = 1U;
@@ -283,6 +295,9 @@ int main(void)
 
       if (AppAudio_PopTriggerEvent(&audio_trigger_event) != 0U)
       {
+        ui_model.arrival_ns = audio_trigger_event.arrival_ns;
+        ui_model.arrival_event_id = audio_trigger_event.event_id;
+        ui_model.arrival_valid = audio_trigger_event.onset_valid;
         AppMeasure_OnAudioEvent(&audio_trigger_event);
         redraw = 1U;
       }
@@ -291,6 +306,8 @@ int main(void)
       {
         ui_model.measurement_valid = 1U;
         ui_model.distance_mm = measure_result.distance_mm;
+        ui_model.arrival_difference_change_ns = measure_result.arrival_difference_change_ns;
+        ui_model.arrival_difference_change_valid = measure_result.arrival_difference_change_valid;
         last_measurement_distance = measure_result.distance_mm;
         last_measurement_speed = measure_result.sound_speed_mm_s;
         ui_model.direction = measure_result.source_at_master ?

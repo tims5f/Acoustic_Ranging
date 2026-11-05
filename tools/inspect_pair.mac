@@ -2,10 +2,10 @@ execUserAttach()
 {
   __var f;
   __var i;
-  __message "pair_captured=", __readMemory8(0x20016ef4, "Memory"), "\n";
-  if (__readMemory8(0x20016ef4, "Memory") == 0) return;
-  f = __openFile("C:\\Users\\bjtuj\\Desktop\\final_work\\final_work\\tools\\pair_samples.csv", "w");
+  __message "pair_captured=", __readMemory8(0x2001ed2a, "Memory"), "\n";
+  if (__readMemory8(0x2001ed2a, "Memory") == 0) return;
+  f = __openFile("C:\\Users\\bjtuj\\Desktop\\final_work\\tools\\pair_samples.csv", "w");
   for (i=0; i<3072; i++)
-    __fmessage f, __readMemory16(0x20016ef8+i*2,"Memory"), ",", __readMemory16(0x200186f8+i*2,"Memory"), "\n";
+    __fmessage f, __readMemory16(0x2001ed2c+i*2,"Memory"), ",", __readMemory16(0x2002052c+i*2,"Memory"), "\n";
   __closeFile(f);
 }

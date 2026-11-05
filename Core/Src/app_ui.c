@@ -1,5 +1,6 @@
 #include "app_ui.h"
 #include "app_audio.h"
+#include "app_settings.h"
 #include "app_temperature.h"
 #include "app_font_zh.h"
 
@@ -469,7 +470,7 @@ static void ui_draw_direction(const AppUiModel *model)
   const uint16_t *direction = zh_wait_sound;
   uint16_t direction_count =
       (uint16_t)(sizeof(zh_wait_sound) / sizeof(zh_wait_sound[0]));
-  Point arrow[3];
+  uint8_t source_is_local;
 
   if (model->measurement_valid != 0U)
   {
@@ -494,21 +495,8 @@ static void ui_draw_direction(const AppUiModel *model)
   ui_fill_rect(21, 105, 264, 29, soft);
   BSP_LCD_SetTextColor(accent);
 
-  if (model->direction == APP_UI_DIRECTION_B)
-  {
-    BSP_LCD_DrawHLine(35, 119, 24);
-    arrow[0].X = 59; arrow[0].Y = 114;
-    arrow[1].X = 67; arrow[1].Y = 119;
-    arrow[2].X = 59; arrow[2].Y = 124;
-  }
-  else
-  {
-    BSP_LCD_DrawHLine(43, 119, 24);
-    arrow[0].X = 43; arrow[0].Y = 114;
-    arrow[1].X = 35; arrow[1].Y = 119;
-    arrow[2].X = 43; arrow[2].Y = 124;
-  }
-  BSP_LCD_FillPolygon(arrow, 3);
+  /* Board roles do not encode physical left/right placement. */
+  ui_draw_text(34, 115, "SRC", &Font8, accent, soft);
   AppFontZh_DrawText(76, 111, direction, direction_count, accent, soft);
   if ((model->measurement_valid != 0U) &&
       ((model->direction == APP_UI_DIRECTION_A) ||
@@ -520,6 +508,13 @@ static void ui_draw_direction(const AppUiModel *model)
     AppFontZh_DrawText(132, 111, zh_side,
                        (uint16_t)(sizeof(zh_side) / sizeof(zh_side[0])),
                        accent, soft);
+    source_is_local = (uint8_t)(
+        (model->direction == APP_UI_DIRECTION_A && model->role == APP_UI_ROLE_MASTER) ||
+        (model->direction == APP_UI_DIRECTION_B && model->role == APP_UI_ROLE_SLAVE));
+    ui_draw_text(156, 115, model->direction == APP_UI_DIRECTION_A ? "MASTER" : "SLAVE",
+                 &Font8, accent, soft);
+    ui_draw_text(212, 115, source_is_local ? "LOCAL" : "PEER",
+                 &Font8, accent, soft);
   }
 }
 
@@ -532,6 +527,18 @@ static void ui_draw_measurement(const AppUiModel *model)
   AppFontZh_DrawText(21, 48, zh_distance,
                      (uint16_t)(sizeof(zh_distance) / sizeof(zh_distance[0])),
                      UI_COLOR_BLUE, UI_COLOR_SURFACE);
+
+  if ((model->measurement_valid != 0U) && (model->arrival_difference_change_valid != 0U))
+  {
+    uint32_t tenths_us=(model->arrival_difference_change_ns+50U)/100U;
+    (void)snprintf(text, sizeof(text), "|dDT| %lu.%lu us",
+        (unsigned long)(tenths_us/10U), (unsigned long)(tenths_us%10U));
+  }
+  else
+  {
+    (void)strcpy(text, "|dDT| --- us");
+  }
+  ui_draw_text(95, 50, text, &Font12, UI_COLOR_MUTED, UI_COLOR_SURFACE);
 
   if (model->measurement_valid != 0U)
   {
@@ -652,7 +659,8 @@ static void ui_draw_environment(const AppUiModel *model)
                  model->measurement_valid ? "VALID" :
                  model->measurement_reject_reason == 2U ? "AMBIG" :
                  model->measurement_reject_reason == 1U ? "LOW" :
-                 model->measurement_reject_reason == 3U ? "RANGE" : "WAIT");
+                 model->measurement_reject_reason == 3U ? "RANGE" :
+                 model->measurement_reject_reason == 4U ? "TYPE" : "WAIT");
   ui_draw_text(316, 154, text, &Font8, UI_COLOR_MUTED, UI_COLOR_SURFACE);
 }
 
@@ -699,10 +707,9 @@ static void ui_draw_waveform(const AppUiModel *model)
     AppFontZh_DrawText(18, 181, microphone_status, microphone_status_count,
                        UI_COLOR_RED, UI_COLOR_SURFACE);
   }
-  (void)snprintf(text, sizeof(text), "E%03lu V%03lu",
-                 (unsigned long)(model->trigger_event_id % 1000UL),
-                 (unsigned long)(model->trigger_accepted_count % 1000UL));
-  ui_draw_text(150, 183, text, &Font12, UI_COLOR_MUTED, UI_COLOR_SURFACE);
+  ui_fill_rect(145, 181, 76, 21, UI_COLOR_BLUE_SOFT);
+  ui_draw_text(152, 185, model->audio_mode==APP_AUDIO_MODE_PHONE ? "PHONE" : "CLAP",
+               &Font12, UI_COLOR_TEXT, UI_COLOR_BLUE_SOFT);
   (void)snprintf(text, sizeof(text), "L%u.%u R%u.%u",
                  (unsigned int)(((uint32_t)model->microphone_left_peak *
                                  1000U) / 32768U / 10U),
@@ -949,6 +956,21 @@ static void ui_draw_footer(const AppUiModel *model)
   ui_fill_rect(12, 260, 6, 6, color);
   AppFontZh_DrawText(24, 255, status_zh, status_zh_count,
                      LCD_COLOR_WHITE, UI_COLOR_HEADER);
+
+  /* Local microphone arrival in the synchronized clock domain. Six
+     fractional digits expose microseconds, without implying us accuracy. */
+  if (model->arrival_valid != 0U)
+  {
+    (void)snprintf(text, sizeof(text), "TOA#%03lu %lu.%06lus",
+        (unsigned long)(model->arrival_event_id % 1000U),
+        (unsigned long)(model->arrival_ns / 1000000000ULL),
+        (unsigned long)((model->arrival_ns % 1000000000ULL) / 1000ULL));
+  }
+  else
+  {
+    (void)strcpy(text, "TOA --- .------s");
+  }
+  ui_draw_text(112, 258, text, &Font8, UI_COLOR_TEXT, UI_COLOR_HEADER);
 
   (void)snprintf(text, sizeof(text), "RX %05lu | TX %05lu | DROP %03lu",
                  (unsigned long)(model->network_rx_count % 100000UL),

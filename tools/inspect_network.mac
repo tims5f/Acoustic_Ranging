@@ -1,0 +1,20 @@
+execUserAttach()
+{
+ __message "uwTick=", __readMemory32(0x20014bf8, "Memory"), "\n";
+ __message "peer_online=", __readMemory8(0x2002ccc4, "Memory"), "\n";
+ __message "previous_link_state=", __readMemory8(0x2002ccc6, "Memory"), "\n";
+ __message "local_role=", __readMemory8(0x2002ccc7, "Memory"), "\n";
+ __message "rx_count=", __readMemory32(0x2002ccfc, "Memory"), "\n";
+ __message "tx_count=", __readMemory32(0x2002cd00, "Memory"), "\n";
+ __message "drop_count=", __readMemory32(0x2002cd04, "Memory"), "\n";
+ __message "last_peer_tick=", __readMemory32(0x2002ccec, "Memory"), "\n";
+ __message "clock_state=", __readMemory8(0x2002ca90, "Memory"), "\n";
+ __message "good_samples=", __readMemory8(0x2002ca97, "Memory"), "\n";
+ __message "round_trip_ns=", __readMemory32(0x2002caf8, "Memory"), "\n";
+ __message "error_ns=", __readMemory32(0x2002caf0, "Memory"), "\n";
+ __message "last_sample_ms=", __readMemory32(0x2002cae8, "Memory"), "\n";
+ __message "ethernet_tx_failures=", __readMemory32(0x2002cee0, "Memory"), "\n";
+ __message "local_node_id=", __readMemory32(0x2002ccc8, "Memory"), "\n";
+ __message "peer_node_id=", __readMemory32(0x2002ccd4, "Memory"), "\n";
+ __message "peer_address=", __readMemory32(0x2002ccc0, "Memory"), "\n";
+}

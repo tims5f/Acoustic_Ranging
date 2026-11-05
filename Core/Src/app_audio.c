@@ -1,5 +1,7 @@
 #include "app_audio.h"
 #include "app_clock.h"
+#include "app_audio_filter.h"
+#include "app_settings.h"
 
 #include "stm32746g_discovery_audio.h"
 
@@ -50,6 +52,35 @@ static volatile uint32_t last_restart_ms;
 static volatile uint32_t last_block_ms;
 static uint8_t codec_ready;
 static uint32_t envelope_left_sum, envelope_right_sum;
+static AppAudioFilter audio_filters[2];
+static volatile uint16_t audio_noise_level, audio_adaptive_gate;
+static uint32_t audio_warmup_until;
+static uint8_t audio_capture_mode;
+static volatile uint32_t audio_dma_delay_words, audio_dma_max_delay_words, audio_dma_late_blocks;
+
+static uint8_t audio_block_end(uint32_t boundary_remaining, uint64_t *end_ns)
+{
+  uint32_t before, after, elapsed, retry;
+  uint64_t now;
+  for(retry=0U; retry<3U; retry++) {
+    before=__HAL_DMA_GET_COUNTER(haudio_in_sai.hdmarx);
+    now=AppClock_NowNs();
+    after=__HAL_DMA_GET_COUNTER(haudio_in_sai.hdmarx);
+    if(before==after) break;
+  }
+  elapsed=(boundary_remaining+AUDIO_DMA_WORDS-after)%AUDIO_DMA_WORDS;
+  audio_dma_delay_words=elapsed;
+  if(elapsed>audio_dma_max_delay_words) audio_dma_max_delay_words=elapsed;
+  if(elapsed>=AUDIO_HALF_WORDS) {
+    audio_dma_late_blocks++; error_count++;
+    capture_count=0U; trigger_capture_valid=0U; trigger_event_pending=0U;
+    return 0U;
+  }
+  /* DMA counts stereo halfwords, two per sample frame. Backdate the
+     callback to the buffer boundary instead of including ISR latency. */
+  *end_ns=now-(uint64_t)elapsed*1000000000ULL/(APP_AUDIO_SAMPLE_RATE_HZ*2ULL);
+  return 1U;
+}
 static uint16_t sample_magnitude(int16_t sample)
 {
   int32_t value = sample;
@@ -96,7 +127,15 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
   uint16_t threshold = trigger_threshold_raw;
   uint16_t envelope_gate = threshold / 2U;
   uint16_t release_level;
-  if (envelope_gate < 32U) envelope_gate = 32U;
+  uint32_t noise_gate;
+  audio_noise_level = AppAudioFilter_Noise(&audio_filters[0]);
+  if(AppAudioFilter_Noise(&audio_filters[1])>audio_noise_level)
+    audio_noise_level=AppAudioFilter_Noise(&audio_filters[1]);
+  noise_gate=(uint32_t)audio_noise_level*(AppSettings_GetAudioMode()==APP_AUDIO_MODE_PHONE?4U:6U)+16U;
+  if(noise_gate>30000U) noise_gate=30000U;
+  if(envelope_gate<noise_gate) envelope_gate=(uint16_t)noise_gate;
+  if(envelope_gate<48U) envelope_gate=48U;
+  audio_adaptive_gate=envelope_gate;
   release_level = (uint16_t)((uint32_t)envelope_gate * 3U / 4U);
   uint32_t first_frame = frames_captured;
   if (audio_state == APP_AUDIO_ERROR)
@@ -106,8 +145,8 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
 
   for (i = 0U; i < AUDIO_FRAMES_PER_HALF; i++)
   {
-    int16_t left_sample = (int16_t)audio_dma_words[start_word + 2U * i];
-    int16_t right_sample = (int16_t)audio_dma_words[start_word + 2U * i + 1U];
+    int16_t left_sample = AppAudioFilter_Process(&audio_filters[0], (int16_t)audio_dma_words[start_word + 2U * i]);
+    int16_t right_sample = AppAudioFilter_Process(&audio_filters[1], (int16_t)audio_dma_words[start_word + 2U * i + 1U]);
     uint16_t left = sample_magnitude(left_sample);
     uint16_t right = sample_magnitude(right_sample);
     uint16_t magnitude = (left > right) ? left : right;
@@ -178,9 +217,19 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
         pending_event.channel = trigger_channel;
         trigger_event_pending = (pending_event.arrival_ns != 0U) ? 1U : 0U;
         if (trigger_event_pending != 0U) trigger_accepted_count++;
+        {
+        uint32_t minimum_peak=(uint32_t)trigger_threshold_raw*4U;
+        uint16_t completed_peak=trigger_peak;
+        if(!trigger_event_pending || (uint32_t)completed_peak < minimum_peak) {
+          /* A rejected weak capture must not hide a subsequent real clap
+             for the full 0.8 s strong-event refractory interval. */
+          holdoff_until_frame=frame+APP_AUDIO_SAMPLE_RATE_HZ/100U;
+        }
+        }
       }
     }
-    else if ((int32_t)(frame - holdoff_until_frame) >= 0)
+    else if ((int32_t)(frame - holdoff_until_frame) >= 0 &&
+             (int32_t)(frame - audio_warmup_until) >= 0)
     {
       if (envelope <= release_level)
       {
@@ -241,6 +290,9 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
 
 static uint8_t audio_start_dma(void)
 {
+  AppAudioFilter_Reset(&audio_filters[0]);
+  AppAudioFilter_Reset(&audio_filters[1]);
+  audio_warmup_until=frames_captured+APP_AUDIO_SAMPLE_RATE_HZ;
   envelope_left_sum = 0U;
   envelope_right_sum = 0U;
   capture_count = 0U;
@@ -319,7 +371,7 @@ void AppAudio_Init(void)
     return;
   }
   codec_ready = 1U;
-  (void)BSP_AUDIO_IN_SetVolume(80U);
+  (void)BSP_AUDIO_IN_SetVolume(68U);
   /* Timestamping runs in the DMA callback. The BSP default is priority 15,
      which lets unrelated interrupts delay the timestamp unpredictably. */
   HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 4U, 0U);
@@ -409,6 +461,10 @@ uint8_t AppAudio_CopyTriggerCapture(uint32_t event_id, int16_t *pcm,
 
 void AppAudio_Process(void)
 {
+  if(audio_capture_mode!=AppSettings_GetAudioMode()) {
+    audio_capture_mode=AppSettings_GetAudioMode();
+    AppAudio_SetTriggerThreshold(trigger_threshold_permille);
+  }
   uint32_t now_ms = HAL_GetTick();
 
   if ((audio_state != APP_AUDIO_ERROR) &&
@@ -432,7 +488,7 @@ void AppAudio_Process(void)
       return;
     }
     codec_ready = 1U;
-    (void)BSP_AUDIO_IN_SetVolume(80U);
+    (void)BSP_AUDIO_IN_SetVolume(68U);
   }
   else
   {
@@ -479,12 +535,14 @@ void AppAudio_CopySnapshot(AppAudioSnapshot *snapshot,
 
 void BSP_AUDIO_IN_HalfTransfer_CallBack(void)
 {
-  audio_process_half(0U, AppClock_NowNs());
+  uint64_t end_ns;
+  if(audio_block_end(AUDIO_HALF_WORDS, &end_ns)) audio_process_half(0U, end_ns);
 }
 
 void BSP_AUDIO_IN_TransferComplete_CallBack(void)
 {
-  audio_process_half(AUDIO_HALF_WORDS, AppClock_NowNs());
+  uint64_t end_ns;
+  if(audio_block_end(AUDIO_DMA_WORDS, &end_ns)) audio_process_half(AUDIO_HALF_WORDS, end_ns);
 }
 
 void BSP_AUDIO_IN_Error_CallBack(void)
