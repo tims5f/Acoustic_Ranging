@@ -82,6 +82,11 @@ typedef struct
   uint32_t arrival_difference_change_ns;
   uint8_t arrival_difference_change_valid;
   uint8_t audio_mode;
+  uint8_t waveform_mode;
+  uint8_t waveform_valid;
+  uint8_t waveform_fullscreen;
+  /* Display range only: 0 = automatic; otherwise +/- PCM sample units. */
+  uint16_t waveform_amplitude_span;
 } AppUiModel;
 
 typedef enum
@@ -95,6 +100,12 @@ typedef enum
 AppUiInitStatus AppUI_Init(void);
 void AppUI_ConfigMPU(void);
 void AppUI_Render(const AppUiModel *model);
+#define APP_UI_TOUCH_REDRAW 1U
+#define APP_UI_TOUCH_TRIGGER 2U
+#define APP_UI_TOUCH_AUDIO_MODE 4U
+#define APP_UI_TOUCH_WAVE_MODE 8U
+uint8_t AppUI_HandleWaveformTouch(AppUiModel *model, uint16_t x,
+                                 uint16_t y, uint8_t fresh_press);
 uint8_t AppUI_AdjustTemperatureByTouch(uint16_t x, uint16_t y);
 uint8_t AppUI_AdjustTriggerByTouch(AppUiModel *model, uint16_t x, uint16_t y);
 void AppUI_CreateDemo(AppUiModel *model, int16_t *waveform, uint16_t count);

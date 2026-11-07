@@ -59,6 +59,8 @@ static AppAudioTriggerEvent audio_trigger_event;
 static AppMeasureResult measure_result;
 static AppUiInitStatus ui_init_status;
 static uint32_t ui_update_tick;
+static uint64_t ui_live_target_ns;
+static uint64_t ui_live_last_slot = UINT64_MAX;
 static uint32_t touch_last_seen_tick;
 static uint32_t touch_last_adjust_tick;
 static uint32_t last_measurement_tick;
@@ -157,6 +159,13 @@ static void App_UpdateAudioUi(void)
   AppAudio_CopySnapshot(&audio_snapshot, ui_waveform,
                         (uint16_t)(sizeof(ui_waveform) /
                                    sizeof(ui_waveform[0])));
+  ui_model.waveform_mode = AppSettings_GetWaveformMode();
+  ui_model.waveform_valid = audio_snapshot.trigger_valid;
+  if (ui_model.waveform_mode == APP_WAVEFORM_LIVE)
+  {
+    ui_model.waveform_valid = AppAudio_CopyLiveWaveform(ui_waveform,
+        APP_AUDIO_WAVEFORM_SAMPLES, ui_live_target_ns);
+  }
   if(ui_model.audio_mode!=AppSettings_GetAudioMode()) {
     ui_model.measurement_valid=0U; ui_model.arrival_difference_change_valid=0U;
     ui_model.direction=APP_UI_DIRECTION_NONE;
@@ -270,18 +279,36 @@ int main(void)
         if (((now_ms - touch_last_seen_tick) >= 75U) ||
             ((now_ms - touch_last_adjust_tick) >= 250U))
         {
-          if (touch_x>=145U && touch_x<=221U && touch_y>=181U && touch_y<=202U &&
-              (now_ms-touch_last_seen_tick)>=75U) {
-            AppSettings_SetAudioMode((uint8_t)(AppSettings_GetAudioMode()^1U));
-            AppAudio_SetTriggerThreshold(ui_model.trigger_threshold_permille);
-            touch_last_adjust_tick=now_ms; redraw=1U;
+          uint8_t action = AppUI_HandleWaveformTouch(&ui_model, touch_x,
+              touch_y, (uint8_t)((now_ms - touch_last_seen_tick) >= 75U));
+          if (action != 0U)
+          {
+            if ((action & (APP_UI_TOUCH_TRIGGER | APP_UI_TOUCH_AUDIO_MODE)) != 0U)
+              AppAudio_SetTriggerThreshold(ui_model.trigger_threshold_permille);
+            if ((action & APP_UI_TOUCH_WAVE_MODE) != 0U)
+              ui_live_last_slot = UINT64_MAX;
+            touch_last_adjust_tick = now_ms;
+            redraw = 1U;
           }
-          else if (AppUI_AdjustTemperatureByTouch(touch_x, touch_y))
+ /*         
+          // 新按钮：判断手指是否点在按钮里面
+else if (touch_x >= 225U && touch_x < 285U &&
+         touch_y >= 160U && touch_y < 178U &&
+         (now_ms - touch_last_seen_tick) >= 75U)
+{
+    // 点击后，把温度设为25℃，并进入手动模式
+    AppTemperature_SetManual(250);
+
+    touch_last_adjust_tick = now_ms;
+    redraw = 1U;
+}*/
+          else if (!ui_model.waveform_fullscreen &&
+                   AppUI_AdjustTemperatureByTouch(touch_x, touch_y))
           {
             touch_last_adjust_tick = now_ms;
             redraw = 1U;
           }
-          else if (AppUI_AdjustTriggerByTouch(&ui_model,
+          else if (!ui_model.waveform_fullscreen && AppUI_AdjustTriggerByTouch(&ui_model,
                                          touch_x, touch_y) != 0U)
           {
             AppAudio_SetTriggerThreshold(
@@ -340,6 +367,22 @@ int main(void)
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
         redraw = 1U;
       }
+
+      if (AppSettings_GetWaveformMode() == APP_WAVEFORM_LIVE)
+      {
+        /* Select a common 50 ms grid, allowing DMA 20 ms to collect it. */
+        uint64_t wave_now = AppClock_NowNs();
+        uint64_t slot = wave_now / APP_WAVEFORM_PERIOD_NS;
+        if ((wave_now % APP_WAVEFORM_PERIOD_NS) >= APP_WAVEFORM_DISPLAY_DELAY_NS &&
+            slot != ui_live_last_slot)
+        {
+          ui_live_target_ns = slot * APP_WAVEFORM_PERIOD_NS;
+          ui_live_last_slot = slot;
+          redraw = 1U;
+        }
+        else redraw = 0U;
+      }
+      else ui_live_last_slot = UINT64_MAX;
 
       if (redraw != 0U)
       {

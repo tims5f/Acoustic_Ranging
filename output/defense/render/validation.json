@@ -1,0 +1,8 @@
+{
+  "docx_sha256": "75737867b64571be2fd0c9c712a08e0141bf6c9f0f48d6a8ed4b2647be59ae17",
+  "pages": 24,
+  "renderer": "Microsoft Word native PDF export plus packaged render_docx.py rasterize and bundled Poppler",
+  "dpi": 96,
+  "table_header_orphan_fix": true,
+  "source": "docs/分布式声波测距系统答辩说明.md"
+}

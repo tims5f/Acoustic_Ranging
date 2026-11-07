@@ -19,6 +19,7 @@ static uint32_t local_tick, peer_tick, last_send_tick, command_sequence;
 static uint32_t peer_command_sequence;
 static uint8_t peer_command_seen;
 static uint8_t audio_mode=APP_AUDIO_MODE_CLAP;
+static uint8_t waveform_mode=APP_WAVEFORM_LIVE;
 
 static void put32(uint8_t *p, uint32_t v) {
   p[0]=(uint8_t)(v>>24); p[1]=(uint8_t)(v>>16); p[2]=(uint8_t)(v>>8); p[3]=(uint8_t)v;
@@ -42,7 +43,8 @@ static void receive_temperature(void *arg, struct udp_pcb *pcb, struct pbuf *p,
   AppNetwork_GetPeerIPv4(ip);
   if(p->tot_len!=32 || pbuf_copy_partial(p,data,32,0)!=32 ||
      port!=TEMP_PORT || !AppNetwork_IsPeerOnline() || get32(data)!=TEMP_MAGIC ||
-     data[4]!=2 || data[26]>APP_AUDIO_MODE_PHONE || data[5]==(uint8_t)role ||
+     data[4]!=3 || data[26]>APP_AUDIO_MODE_PHONE ||
+     data[27]>APP_WAVEFORM_EVENT || data[5]==(uint8_t)role ||
      (data[5]!=APP_NETWORK_ROLE_MASTER && data[5]!=APP_NETWORK_ROLE_SLAVE) ||
      get32(data+28)!=crc32(data) ||
      ip[0]!=ip4_addr1(ip_2_ip4(address)) || ip[1]!=ip4_addr2(ip_2_ip4(address)) ||
@@ -57,6 +59,7 @@ static void receive_temperature(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     if(!peer_command_seen || seq!=peer_command_sequence) {
       if(in_range(get16(data+12)) && data[6]<=1) {
         automatic=data[6]; manual_temperature=get16(data+12); audio_mode=data[26];
+        waveform_mode=data[27];
         peer_command_sequence=seq; peer_command_seen=1;
       }
     }
@@ -64,6 +67,7 @@ static void receive_temperature(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     if(command_pending && data[25] && get32(data+20)==command_sequence) command_pending=0;
     if(!command_pending && data[6]<=1 && in_range(get16(data+12))) {
       automatic=data[6]; manual_temperature=get16(data+12); audio_mode=data[26];
+      waveform_mode=data[27];
     }
     selected_temperature=get16(data+14);
     master_ready=(uint8_t)(data[24] && in_range(selected_temperature)); source=data[9];
@@ -105,11 +109,12 @@ void AppTemperature_Process(void) {
   if(temperature_pcb!=NULL && AppNetwork_IsPeerOnline() && now-last_send_tick>=250U) {
     uint8_t data[32]={0},ip[4]; ip_addr_t address; struct pbuf *p;
     last_send_tick=now;
-    put32(data,TEMP_MAGIC); data[4]=2; data[5]=(uint8_t)role;
+    put32(data,TEMP_MAGIC); data[4]=3; data[5]=(uint8_t)role;
     data[6]=automatic; data[7]=local_valid; data[8]=command_pending; data[9]=source;
     put16(data+10,local_temperature); put16(data+12,manual_temperature);
     put16(data+14,selected_temperature); put32(data+16,command_sequence);
     put32(data+20,peer_command_sequence); data[24]=ready; data[25]=peer_command_seen; data[26]=audio_mode;
+    data[27]=waveform_mode;
     put32(data+28,crc32(data));
     AppNetwork_GetPeerIPv4(ip); IP_ADDR4(&address,ip[0],ip[1],ip[2],ip[3]);
     p=pbuf_alloc(PBUF_TRANSPORT,32,PBUF_RAM);
@@ -132,3 +137,8 @@ void AppSettings_SetAudioMode(uint8_t mode) {
   audio_mode=mode; changed();
 }
 uint8_t AppSettings_IsPending(void) { return command_pending; }
+uint8_t AppSettings_GetWaveformMode(void) { return waveform_mode; }
+void AppSettings_SetWaveformMode(uint8_t mode) {
+  if(mode>APP_WAVEFORM_EVENT || mode==waveform_mode) return;
+  waveform_mode=mode; changed();
+}

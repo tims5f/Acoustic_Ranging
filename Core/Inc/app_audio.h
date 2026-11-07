@@ -55,5 +55,8 @@ uint8_t AppAudio_CopyTriggerCapture(uint32_t event_id, int16_t *pcm,
                                     uint16_t sample_count);
 void AppAudio_CopySnapshot(AppAudioSnapshot *snapshot,
                            int16_t *waveform, uint16_t waveform_count);
+/* Common-clock start time; fixed left microphone channel, no edge alignment. */
+uint8_t AppAudio_CopyLiveWaveform(int16_t *waveform, uint16_t count,
+                                 uint64_t start_ns);
 
 #endif

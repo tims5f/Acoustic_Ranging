@@ -14,6 +14,7 @@
 #define AUDIO_RESTART_DELAY_MS      1000U
 #define AUDIO_TRIGGER_HOLDOFF_FRAMES (APP_AUDIO_SAMPLE_RATE_HZ * 4U / 5U)
 #define AUDIO_TRIGGER_UI_PRE_FRAMES 40U
+#define AUDIO_LIVE_RING_SAMPLES 4096U
 
 extern SAI_HandleTypeDef haudio_in_sai;
 
@@ -28,6 +29,10 @@ static volatile uint32_t frames_captured;
 static volatile uint32_t error_count;
 static volatile uint8_t interval_clipped;
 static volatile int16_t trigger_waveform[APP_AUDIO_WAVEFORM_SAMPLES];
+static volatile int16_t live_ring[AUDIO_LIVE_RING_SAMPLES];
+static volatile uint16_t live_head;
+static volatile uint16_t live_count;
+static volatile uint64_t live_end_ns;
 static int16_t trigger_capture[APP_AUDIO_TRIGGER_CAPTURE_SAMPLES];
 static int16_t pretrigger_left[APP_AUDIO_TRIGGER_PRE_SAMPLES];
 static int16_t pretrigger_right[APP_AUDIO_TRIGGER_PRE_SAMPLES];
@@ -266,6 +271,9 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
     }
 
     pretrigger_left[pretrigger_head] = left_sample;
+    live_ring[live_head] = left_sample;
+    live_head = (uint16_t)((live_head + 1U) & (AUDIO_LIVE_RING_SAMPLES - 1U));
+    if (live_count < AUDIO_LIVE_RING_SAMPLES) live_count++;
     pretrigger_right[pretrigger_head] = right_sample;
     pretrigger_head = (uint16_t)((pretrigger_head + 1U) &
                                  (APP_AUDIO_TRIGGER_PRE_SAMPLES - 1U));
@@ -284,6 +292,7 @@ static void audio_process_half(uint16_t start_word, uint64_t block_end_ns)
     interval_clipped = 1U;
   }
   frames_captured += AUDIO_FRAMES_PER_HALF;
+  live_end_ns = block_end_ns;
   last_block_ms = HAL_GetTick();
   audio_state = APP_AUDIO_RUNNING;
 }
@@ -300,6 +309,9 @@ static uint8_t audio_start_dma(void)
   holdoff_until_frame = frames_captured;
   pretrigger_head = 0U;
   (void)memset(pretrigger_left, 0, sizeof(pretrigger_left));
+  live_head = 0U;
+  live_count = 0U;
+  live_end_ns = 0U;
   (void)memset(pretrigger_right, 0, sizeof(pretrigger_right));
   if (HAL_SAI_Receive_DMA(&haudio_in_sai, (uint8_t *)audio_dma_words,
                           AUDIO_DMA_WORDS) != HAL_OK)
@@ -531,6 +543,41 @@ void AppAudio_CopySnapshot(AppAudioSnapshot *snapshot,
   interval_right_peak = 0U;
   interval_clipped = 0U;
   __set_PRIMASK(interrupt_mask);
+}
+
+uint8_t AppAudio_CopyLiveWaveform(int16_t *waveform, uint16_t count,
+                                 uint64_t start_ns)
+{
+  uint32_t mask, offset;
+  uint64_t age_ns;
+  uint16_t i, first;
+  if (waveform == NULL || count != APP_AUDIO_WAVEFORM_SAMPLES) return 0U;
+  mask = __get_PRIMASK();
+  __disable_irq();
+  if (audio_state != APP_AUDIO_RUNNING || live_end_ns <= start_ns)
+  {
+    __set_PRIMASK(mask);
+    return 0U;
+  }
+  age_ns = live_end_ns - start_ns;
+  if (age_ns > 100000000ULL)
+  {
+    __set_PRIMASK(mask);
+    return 0U;
+  }
+  offset = (uint32_t)((age_ns * APP_AUDIO_SAMPLE_RATE_HZ + 500000000ULL) /
+                       1000000000ULL);
+  if (offset < count || offset > live_count)
+  {
+    __set_PRIMASK(mask);
+    return 0U;
+  }
+  first = (uint16_t)((live_head + AUDIO_LIVE_RING_SAMPLES - offset) &
+                     (AUDIO_LIVE_RING_SAMPLES - 1U));
+  for (i = 0U; i < count; i++)
+    waveform[i] = live_ring[(first + i) & (AUDIO_LIVE_RING_SAMPLES - 1U)];
+  __set_PRIMASK(mask);
+  return 1U;
 }
 
 void BSP_AUDIO_IN_HalfTransfer_CallBack(void)
